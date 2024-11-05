@@ -105,6 +105,23 @@ impl Blockchain {
         true
     }
 
+    pub fn get_chain(&self) -> Vec<Block> {
+        let chain = self.chain.lock().unwrap();
+        chain.clone()
+    }
+
+    pub fn get_block(&self, index: usize) -> Option<Block> {
+        let chain = self.chain.lock().unwrap();
+        chain.get(index).cloned()
+    }
+
+    pub fn get_block_by_hash(&self, hash: String) -> Option<Block> {
+        let chain = self.chain.lock().unwrap();
+        chain.iter().find(|block| self.hash(block) == hash).cloned()
+    }
+
+
+
 
 }
 
