@@ -1,7 +1,16 @@
 mod runtime;
+mod rpc;
+
 use runtime::Blockchain;
 
-fn main() {
+#[tokio::main]
+async fn main() {
+    run_rpc().await;
+
+
+}
+
+fn run_chain()  {
     println!("ABDALA CHAIN - A simple blockchain implementation in Rust");
 
     let chain = Blockchain::new();
@@ -22,6 +31,10 @@ fn main() {
 
     }
 
+}
 
+async fn run_rpc() {
+    rpc::start_server().await.unwrap();
+    println!("RPC server started at http://localhost:8000");
 
 }
