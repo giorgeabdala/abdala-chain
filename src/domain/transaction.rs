@@ -4,7 +4,7 @@ use rocket::serde::Serialize;
 use serde::Deserialize;
 use sha2::Sha256;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Transaction {
     pub hash: String,
     pub timestamp: String,

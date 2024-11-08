@@ -1,16 +1,13 @@
 mod runtime;
-mod rpc;
 pub mod domain;
-pub mod pallets;
-
+pub mod core_client;
 use runtime::Blockchain;
+use core_client::rpc;
 
 #[tokio::main]
 async fn main() {
     //run_rpc().await;
     run_chain();
-
-
 }
 
 fn run_chain()  {
@@ -38,6 +35,6 @@ fn run_chain()  {
 
 async fn run_rpc() {
     rpc::start_server().await.unwrap();
-    println!("RPC server started at http://localhost:8000");
+    println!("RPC server started at http://localhost:8087");
 
 }
