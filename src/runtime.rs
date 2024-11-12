@@ -30,11 +30,15 @@ impl Blockchain {
             previous_hash: "0".to_string(),
             transactions: vec![],
         };
+
+        let mut balances = Pallet::new();
+        balances.set_balance("Alice", 100).unwrap();
+
         chain.push(genesis_block);
         Blockchain {
             chain: Mutex::new(chain),
             transaction_pool: vec![],
-            balances: Pallet { balance: Default::default() },
+            balances,
             system: SystemPallet { nonce: Default::default() },
             nodes: vec![],
         }
@@ -45,6 +49,9 @@ impl Blockchain {
         let receiver = transaction.to.clone();
         let amount = transaction.amount;
 
+        let inc_nonce_result = self.system.increment_nonce(&sender);
+        if inc_nonce_result.is_err() { return Err(inc_nonce_result.err().unwrap()); }
+
         if amount <= 0f64 {
             return Err("Amount must be greater than 0".to_string());
         }
@@ -53,16 +60,10 @@ impl Blockchain {
             return Err("Insufficient balance".to_string());
         }
 
-        let inc_nonce_result = self.system.increment_nonce(&sender);
-        if inc_nonce_result.is_err() { return Err(inc_nonce_result.err().unwrap()); }
-
         let transfer_result = self.balances.transfer(&sender, &receiver, amount as u128);
         if transfer_result.is_err() {
-            self.system.decrement_nonce(&sender)?;
             return Err(transfer_result.err().unwrap());
-
         }
-        self.system.increment_nonce(&sender).unwrap();
         Ok(true)
     }
 
@@ -70,22 +71,36 @@ impl Blockchain {
         if transactions.is_empty() {
             return Err("No transactions to execute".to_string());
         }
-
         for transaction in transactions {
-            self.execute_transaction(transaction)?;
+            if let Err(e) = self.execute_transaction(transaction.clone()) {
+                println!("Error executing transaction: {:?}", e);
+                continue;
+            }
         }
         Ok(true)
     }
 
     pub fn add_transaction(&mut self, transaction: Transaction) {
+        let mut transaction = transaction.clone();
+        self.replace_chain().unwrap_or(false);
+        if transaction.hash.is_empty() {
+            transaction = Transaction {
+                hash: Transaction::hash(&transaction.sender, &transaction.to, transaction.amount, &transaction.message.clone(), transaction.timestamp),
+                timestamp: Some(Utc::now().to_rfc3339()),
+                sender: transaction.sender,
+                to: transaction.to,
+                amount: transaction.amount,
+                message: transaction.message,
+            } ; }
+
        match (self.transaction_pool.len()) {
            4 => {
                 let previous_block = self.get_previous_block();
                 let proof = self.proof_of_work(previous_block.proof);
                 let previous_hash = previous_block.hash();
+
                 self.transaction_pool.push(transaction);
                 let block = self.create_block(proof, previous_hash);
-               self.transaction_pool = vec![];
            }
               _ => {
                 self.transaction_pool.push(transaction);
@@ -113,6 +128,7 @@ impl Blockchain {
             transactions,
         } ;
         chain.push(block.clone());
+        self.transaction_pool = vec![];
         block
     }
 
@@ -216,10 +232,21 @@ impl Blockchain {
 
             Ok(false)
         }
+
+    pub fn balance(&self, address: &str) -> u128 {
+        self.balances.balance(address)
     }
 
+    pub fn get_nonce(&self, address: &str) -> u64 {
+        self.system.get_nonce(address)
+        }
 
 
+    pub fn set_balance(&mut self, address: &str, amount: u128) -> Result<(), String> {
+        self.balances.set_balance(address, amount)
+    }
+
+}
 
 
 #[cfg(test)]
@@ -233,6 +260,10 @@ mod tests {
         let blockchain = Blockchain::new();
         let chain = blockchain.chain.lock().unwrap();
         assert_eq!(chain.len(), 1);
+        assert_eq!(blockchain.transaction_pool.len(), 0);
+        assert_eq!(blockchain.balances.balance("Alice"), 100);
+        assert_eq!(blockchain.system.get_nonce("Alice"), 0);
+
     }
 
     #[test]
@@ -241,16 +272,17 @@ mod tests {
         let previous_block = blockchain.get_previous_block();
         let proof = blockchain.proof_of_work(previous_block.proof);
         let previous_hash = previous_block.hash();
-        let block = blockchain.create_block(proof, previous_hash.clone());
 
         let transaction = Transaction {
             hash: "".to_string(),
-            timestamp: "".to_string(),
+            timestamp: Some(Utc::now().to_rfc3339()),
             sender: "Alice".to_string(),
             to: "Bob".to_string(),
             amount: 50f64,
             message: "".to_string(),
         };
+
+        let block = blockchain.create_block(proof, previous_hash.clone());
 
         blockchain.add_transaction(transaction);
 
@@ -317,7 +349,7 @@ mod tests {
         blockchain.balances.set_balance("Bob", 100);
         let transaction = Transaction {
             hash: "".to_string(),
-            timestamp: "".to_string(),
+            timestamp: Some(Utc::now().to_rfc3339()),
             sender: "Alice".to_string(),
             to: "Bob".to_string(),
             amount: 50f64,
@@ -327,6 +359,7 @@ mod tests {
         assert_eq!(result.is_ok(), true);
         assert_eq!(blockchain.balances.balance("Alice"), 50);
         assert_eq!(blockchain.balances.balance("Bob"), 150);
+        assert_eq!(blockchain.system.get_nonce("Alice"), 1);
     }
 
     #[test]
@@ -336,7 +369,7 @@ mod tests {
         blockchain.balances.set_balance("Bob", 100);
         let transaction1 = Transaction {
             hash: "".to_string(),
-            timestamp: "".to_string(),
+            timestamp: Some(Utc::now().to_rfc3339()),
             sender: "Alice".to_string(),
             to: "Bob".to_string(),
             amount: 50f64,
@@ -344,43 +377,72 @@ mod tests {
         };
         let transaction2 = Transaction {
             hash: "".to_string(),
-            timestamp: "".to_string(),
+            timestamp: Some(Utc::now().to_rfc3339()),
             sender: "Bob".to_string(),
             to: "Alice".to_string(),
             amount: 25f64,
             message: "".to_string(),
         };
-        let transactions = vec![transaction1, transaction2];
+        let transaction3 = Transaction {
+            hash: "".to_string(),
+            timestamp: Some(Utc::now().to_rfc3339()),
+            sender: "Bob".to_string(),
+            to: "Alice".to_string(),
+            amount: 25f64,
+            message: "".to_string(),
+        };
+        let transactions = vec![transaction1, transaction2, transaction3];
         let result = blockchain.execute_transactions(transactions);
         assert_eq!(result.is_ok(), true);
-        assert_eq!(blockchain.balances.balance("Alice"), 75);
-        assert_eq!(blockchain.balances.balance("Bob"), 125);
+        assert_eq!(blockchain.balances.balance("Alice"), 100);
+        assert_eq!(blockchain.balances.balance("Bob"), 100);
+        assert_eq!(blockchain.system.get_nonce("Alice"), 1);
+        assert_eq!(blockchain.system.get_nonce("Bob"), 2);
     }
 
     #[test]
     fn test_add_transaction() {
         let mut blockchain = Blockchain::new();
+        let sender = "Alice".to_string();
+        let to = "Bob".to_string();
+        let amount = 50f64;
+
+
         let transaction = Transaction {
             hash: "".to_string(),
-            timestamp: "".to_string(),
-            sender: "Alice".to_string(),
-            to: "Bob".to_string(),
-            amount: 50f64,
+            timestamp: Some(Utc::now().to_rfc3339()),
+            sender: sender.clone(),
+            to: to.clone(),
+            amount: amount,
             message: "".to_string(),
         };
-        blockchain.add_transaction(transaction);
+
+        for _ in 0..4 {
+            blockchain.add_transaction(transaction.clone());
+        }
+
         let transaction_pool = blockchain.transaction_pool.clone();
-        assert_eq!(transaction_pool.len(), 1);
+        assert_eq!(transaction_pool.len(), 4);
+        blockchain.add_transaction(transaction.clone());
+        let transaction_pool = blockchain.transaction_pool.clone();
+        assert_eq!(transaction_pool.len(), 0);
+        blockchain.add_transaction(transaction.clone());
+        let transaction_pool = blockchain.transaction_pool.clone();
+        assert_eq!(transaction_pool[0].sender, sender);
+        assert_eq!(transaction_pool[0].to, to);
+        assert_eq!(transaction_pool[0].amount, amount);
+        assert_eq!(transaction_pool[0].hash.is_empty(), false);
     }
 
     #[test]
-    fn test_execute_transaction_fail() {
+    fn test_execute_transaction_fail()
+    {
         let mut blockchain = Blockchain::new();
         blockchain.balances.set_balance("Alice", 100);
         blockchain.balances.set_balance("Bob", 100);
         let transaction = Transaction {
             hash: "".to_string(),
-            timestamp: "".to_string(),
+            timestamp: Some(Utc::now().to_rfc3339()),
             sender: "Alice".to_string(),
             to: "Bob".to_string(),
             amount: 150f64,
@@ -390,9 +452,43 @@ mod tests {
         assert_eq!(result.is_err(), true);
         assert_eq!(blockchain.balances.balance("Alice"), 100);
         assert_eq!(blockchain.balances.balance("Bob"), 100);
-        assert_eq!(blockchain.system.get_nonce("Alice"), 0);
+        assert_eq!(blockchain.system.get_nonce("Alice"), 1);
         assert_eq!(blockchain.system.get_nonce("Bob"), 0);
     }
+
+    #[test]
+    fn test_balance() {
+        let mut blockchain = Blockchain::new();
+        let balance = blockchain.balance("Alice");
+        assert_eq!(balance, 100);
+
+        blockchain.balances.set_balance("Alice", 200);
+        let balance = blockchain.balance("Alice");
+        assert_eq!(balance, 200);
+    }
+
+    #[test]
+    fn test_get_nonce() {
+        let mut blockchain = Blockchain::new();
+        let nonce = blockchain.get_nonce("Alice");
+        assert_eq!(nonce, 0);
+
+        blockchain.system.increment_nonce("Alice").unwrap();
+        let nonce = blockchain.get_nonce("Alice");
+        assert_eq!(nonce, 1);
+    }
+
+    #[test]
+    fn test_set_balance() {
+        let mut blockchain = Blockchain::new();
+        let result = blockchain.set_balance("Alice", 100);
+        assert_eq!(result.is_ok(), true);
+        let balance = blockchain.balance("Alice");
+        assert_eq!(balance, 100);
+    }
+
+
+
 
 
 }

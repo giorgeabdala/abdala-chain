@@ -6,8 +6,8 @@ use core_client::rpc;
 
 #[tokio::main]
 async fn main() {
-    //run_rpc().await;
-    run_chain();
+    run_rpc().await;
+    //run_chain();
 }
 
 fn run_chain()  {

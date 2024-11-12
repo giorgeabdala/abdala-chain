@@ -26,8 +26,10 @@ fn is_valid(runtime: &State<Mutex<Blockchain>>) -> Json<serde_json::Value> {
 
 #[post("/add_transaction", format = "json", data = "<transaction>")]
 fn add_transaction(runtime: &State<Mutex<Blockchain>>, transaction: Json<Transaction>) -> Json<serde_json::Value> {
+    let transaction = transaction.into_inner();
+    let transaction = Transaction::new(transaction.sender, transaction.to, transaction.amount, transaction.message);
     let mut runtime = runtime.lock().unwrap();
-    let index = runtime.add_transaction(transaction.into_inner());
+    let index = runtime.add_transaction(transaction);
     Json(json!({"message": format!("This transaction will be added to block {:?}", index)}))
 }
 
@@ -46,6 +48,23 @@ fn connect_node(runtime: &State<Mutex<Blockchain>>, nodes: Json<serde_json::Valu
     Json(json!({
         "message": "All nodes connected, the blockchain contains the following nodes:",
         "total_nodes": runtime.get_nodes()
+    }))
+}
+
+#[get("/balance?<address>")]
+fn balance(runtime: &State<Mutex<Blockchain>>, address: &str) -> Json<serde_json::Value> {
+    let runtime = runtime.lock().unwrap();
+    let balance = runtime.balance(address);
+    Json(json!({
+        "balance": balance
+    }))
+}
+#[get("/get_nonce?<address>")]
+fn get_nonce(runtime: &State<Mutex<Blockchain>>, address: &str) -> Json<serde_json::Value> {
+    let runtime = runtime.lock().unwrap();
+    let nonce = runtime.get_nonce(address);
+    Json(json!({
+        "nonce": nonce
     }))
 }
 
@@ -70,9 +89,10 @@ pub async fn start_server() -> Result<(), rocket::Error> {
     let runtime = Blockchain::new();
     rocket::build()
         .manage(Mutex::new(runtime))
-        .mount("/", routes![get_chain, is_valid, add_transaction, connect_node, replace_chain])
+        .mount("/", routes![get_chain, is_valid, add_transaction, connect_node, replace_chain, balance, get_nonce])
         .launch()
         .await?;
 
     Ok(())
 }
+
