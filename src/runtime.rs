@@ -7,6 +7,7 @@ use crate::domain::block::Block;
 
 use crate::core_client::system::Pallet as SystemPallet;
 use reqwest;
+use reqwest::Client;
 use serde_json::Value;
 use crate::domain::transaction::Transaction;
 
@@ -80,9 +81,9 @@ impl Blockchain {
         Ok(true)
     }
 
-    pub fn add_transaction(&mut self, transaction: Transaction) {
+    pub async fn add_transaction(&mut self, transaction: Transaction) {
         let mut transaction = transaction.clone();
-        self.replace_chain().unwrap_or(false);
+        self.consensus().await;
         if transaction.hash.is_empty() {
             transaction = Transaction {
                 hash: Transaction::hash(&transaction.sender, &transaction.to, transaction.amount, &transaction.message.clone(), transaction.timestamp),
@@ -203,35 +204,46 @@ impl Blockchain {
     pub fn get_nodes(&self) -> Vec<String> {
         self.nodes.clone()
     }
-    pub fn replace_chain(&mut self) -> Result<bool, Box<dyn std::error::Error>> {
-            let network = &self.nodes;
-            let mut longest_chain: Option<Vec<Block>> = None;
-            let mut max_length = self.chain.lock().unwrap().len();
 
-            for node in network {
-                let url = format!("http://{}/get_chain", node);
-                let response = reqwest::blocking::get(&url)?;
-
-                if response.status().is_success() {
-                    let response_json: Value = response.json()?;
-                    let length = response_json["length"].as_u64().unwrap() as usize;
-                    let chain: Vec<Block> = serde_json::from_value(response_json["chain"].clone())?;
-
-                    if length > max_length && self.is_chain_valid() {
-                        max_length = length;
-                        longest_chain = Some(chain);
-                    }
-                }
+    async fn consensus(&mut self) {
+        let nodes = self.nodes.clone();
+        for node in nodes {
+            let result = self.replace_chain(node.clone());
+            if result.await.is_ok() {
+                println!("Chain replaced");
             }
-
-            if let Some(chain) = longest_chain {
-                let mut current_chain = self.chain.lock().unwrap();
-                *current_chain = chain;
-                return Ok(true);
-            }
-
-            Ok(false)
         }
+    }
+
+
+    async fn replace_chain(&mut self, node: String) -> Result<bool, Box<dyn std::error::Error>> {
+        let mut longest_chain: Option<Vec<Block>> = None;
+        let mut max_length = self.chain.lock().unwrap().len();
+        let url = format!("{}/get_chain", node);
+        println!("Requesting chain from: {}", url);
+
+        let client = Client::new();
+        let response = client.get(&url).send().await?;
+
+        if response.status().is_success() {
+            let response_json: Value = response.json().await?;
+            let length = response_json["length"].as_u64().unwrap() as usize;
+            let chain: Vec<Block> = serde_json::from_value(response_json["chain"].clone())?;
+
+            if length > max_length && self.is_chain_valid() {
+                max_length = length;
+                longest_chain = Some(chain);
+            }
+        }
+
+        if let Some(chain) = longest_chain {
+            let mut current_chain = self.chain.lock().unwrap();
+            *current_chain = chain;
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
 
     pub fn balance(&self, address: &str) -> u128 {
         self.balances.balance(address)
@@ -400,8 +412,8 @@ mod tests {
         assert_eq!(blockchain.system.get_nonce("Bob"), 2);
     }
 
-    #[test]
-    fn test_add_transaction() {
+    #[tokio::test]
+    async fn test_add_transaction() {
         let mut blockchain = Blockchain::new();
         let sender = "Alice".to_string();
         let to = "Bob".to_string();
@@ -418,15 +430,15 @@ mod tests {
         };
 
         for _ in 0..4 {
-            blockchain.add_transaction(transaction.clone());
+            blockchain.add_transaction(transaction.clone()).await;
         }
 
         let transaction_pool = blockchain.transaction_pool.clone();
         assert_eq!(transaction_pool.len(), 4);
-        blockchain.add_transaction(transaction.clone());
+        blockchain.add_transaction(transaction.clone()).await;
         let transaction_pool = blockchain.transaction_pool.clone();
         assert_eq!(transaction_pool.len(), 0);
-        blockchain.add_transaction(transaction.clone());
+        blockchain.add_transaction(transaction.clone()).await;
         let transaction_pool = blockchain.transaction_pool.clone();
         assert_eq!(transaction_pool[0].sender, sender);
         assert_eq!(transaction_pool[0].to, to);
@@ -487,8 +499,15 @@ mod tests {
         assert_eq!(balance, 100);
     }
 
-
-
-
+    #[tokio::test]
+    async fn test_replace_chain() {
+        let mut blockchain = Blockchain::new();
+        let node = "http://localhost:8088";
+        blockchain.add_node(node.to_string());
+        let node = blockchain.get_nodes()[0].clone();
+        println!("Nodes: {}", node);
+        let result = blockchain.replace_chain(node.to_string()).await;
+        assert_eq!(result.is_ok(), true);
+    }
 
 }
