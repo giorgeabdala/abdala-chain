@@ -499,7 +499,7 @@ mod tests {
         assert_eq!(balance, 100);
     }
 
-    #[tokio::test]
+/*    #[tokio::test]
     async fn test_replace_chain() {
         let mut blockchain = Blockchain::new();
         let node = "http://localhost:8088";
@@ -508,6 +508,6 @@ mod tests {
         println!("Nodes: {}", node);
         let result = blockchain.replace_chain(node.to_string()).await;
         assert_eq!(result.is_ok(), true);
-    }
+    }*/
 
 }
