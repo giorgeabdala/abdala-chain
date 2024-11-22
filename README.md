@@ -21,7 +21,7 @@ This project is my final work for the Rust course at the Polkadot Academy, offer
 
 1. **Clone the repository**:
     ```sh
-    git clone https://github.com/yourusername/blockchain-rust.git
+    git clone https://github.com/giorgeabdala/abdala-chain
     cd blockchain-rust
     ```
 

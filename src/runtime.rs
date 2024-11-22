@@ -114,12 +114,6 @@ impl Blockchain {
         let transactions = self.transaction_pool.clone();
         let execute = self.execute_transactions(transactions.clone());
 
-        //TODO: teste falha ao implementar esse if. Transactions vem vazio no teste create_block
-
-/*        if execute.is_err() {
-            panic!("Error executing transactions: {:?}", execute.err().unwrap());
-        }
-*/
         let mut chain = self.chain.lock().unwrap();
 
         let block = Block {
