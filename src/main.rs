@@ -1,6 +1,7 @@
 mod runtime;
 pub mod domain;
 pub mod core_client;
+pub mod wasm;
 use runtime::Blockchain;
 use core_client::rpc;
 

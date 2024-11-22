@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
+use crate::wasm::call::WasmCall;
 
 #[derive(Debug)]
 pub struct Pallet {
-    pub balance: BTreeMap<String, u128>,
+    pub balance: BTreeMap<String, u64>,
 }
 
 impl Pallet {
@@ -12,14 +13,14 @@ impl Pallet {
         }
     }
 
-    pub fn balance(&self, address: &str) -> u128 {
+    pub fn balance(&self, address: &str) -> u64 {
         match self.balance.get(address) {
             Some(balance) => *balance,
             None => 0,
         }
     }
 
-    pub fn transfer(&mut self, sender: &str, to: &str, amount: u128) -> Result<(), String> {
+    pub fn transfer(&mut self, sender: &str, to: &str, amount: u64) -> Result<(), String> {
         if amount == 0 { return Err("Amount must be greater than 0".to_string()); }
         if self.balance(sender) < amount { return Err("Insufficient balance".to_string()); }
 
@@ -33,15 +34,24 @@ impl Pallet {
         Ok(())
     }
 
-    fn add_balance(&mut self, address: &str, amount: u128) -> Result<(), String> {
+    fn add_balance(&mut self, address: &str, amount: u64) -> Result<(), String> {
         let balance = self.balance(address);
         let new_balance = balance.checked_add(amount);
         if new_balance.is_none() { return Err("Not possible add balance".to_string()); }
+
+        // Create an instance of WasmCall
+        let wasm_call = WasmCall::new().map_err(|e| e.to_string())?;
+        let mut store = wasm_call;
+        let call = store.data().clone();
+
+        // Call the add function of WasmCall
+        let result = call.add(&mut store, balance as u32, amount as u32);
+        println!("Result from WasmCall add: {}", result);
+
         self.balance.insert(address.to_string(), new_balance.unwrap());
         Ok(())
     }
-
-    fn sub_balance(&mut self, address: &str, amount: u128) -> Result<(), String> {
+    fn sub_balance(&mut self, address: &str, amount: u64) -> Result<(), String> {
         let balance = self.balance(address);
         let new_balance = balance.checked_sub(amount);
         if new_balance.is_none() { return Err("Not possible sub balance".to_string()); }
@@ -49,7 +59,7 @@ impl Pallet {
         Ok(())
     }
 
-    pub fn set_balance(&mut self, address: &str, amount: u128) -> Result<(), String> {
+    pub fn set_balance(&mut self, address: &str, amount: u64) -> Result<(), String> {
         self.balance.insert(address.to_string(), amount);
         Ok(())
     }

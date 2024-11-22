@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 use chrono::Utc;
 use digest::Digest;
@@ -57,11 +58,11 @@ impl Blockchain {
             return Err("Amount must be greater than 0".to_string());
         }
 
-        if self.balances.balance(&sender) < amount as u128 {
+        if self.balances.balance(&sender) < amount as u64 {
             return Err("Insufficient balance".to_string());
         }
 
-        let transfer_result = self.balances.transfer(&sender, &receiver, amount as u128);
+        let transfer_result = self.balances.transfer(&sender, &receiver, amount as u64);
         if transfer_result.is_err() {
             return Err(transfer_result.err().unwrap());
         }
@@ -210,8 +211,38 @@ impl Blockchain {
         for node in nodes {
             let result = self.replace_chain(node.clone());
             if result.await.is_ok() {
+                self.replace_nonce(node.clone()).await;
+                self.replace_balance(node.clone()).await;
                 println!("Chain replaced");
             }
+        }
+    }
+
+    async fn replace_nonce(&mut self, node: String) {
+        let url = format!("{}/get_all_nonce", node);
+        println!("Requesting nonce from: {}", url);
+
+        let client = Client::new();
+        let response = client.get(&url).send().await.unwrap();
+
+        if response.status().is_success() {
+            let response_json: Value = response.json().await.unwrap();
+            let nonce_map = response_json["nonce"].as_object().unwrap();
+            self.system.nonce = nonce_map.iter().map(|(k, v)| (k.clone(), v.as_u64().unwrap())).collect();
+        }
+    }
+
+    async fn replace_balance(&mut self, node: String) {
+        let url = format!("{}/get_all_balance", node);
+        println!("Requesting balance from: {}", url);
+
+        let client = Client::new();
+        let response = client.get(&url).send().await.unwrap();
+
+        if response.status().is_success() {
+            let response_json: Value = response.json().await.unwrap();
+            let balance_map = response_json["balance"].as_object().unwrap();
+            self.balances.balance = balance_map.iter().map(|(k, v)| (k.clone(), v.as_u64().unwrap())).collect();
         }
     }
 
@@ -245,7 +276,7 @@ impl Blockchain {
         Ok(false)
     }
 
-    pub fn balance(&self, address: &str) -> u128 {
+    pub fn balance(&self, address: &str) -> u64 {
         self.balances.balance(address)
     }
 
@@ -253,8 +284,19 @@ impl Blockchain {
         self.system.get_nonce(address)
         }
 
+    pub fn get_all_nonce(&self) -> BTreeMap<String, u64> {
+        self.system.nonce.clone()
+    }
 
-    pub fn set_balance(&mut self, address: &str, amount: u128) -> Result<(), String> {
+    pub fn get_all_balance(&self) -> BTreeMap<String, u64> {
+        self.balances.balance.clone()
+    }
+
+
+
+
+
+    pub fn set_balance(&mut self, address: &str, amount: u64) -> Result<(), String> {
         self.balances.set_balance(address, amount)
     }
 
@@ -265,6 +307,7 @@ impl Blockchain {
 
 //gere os testes para o módulo runtime
 mod tests {
+    use digest::typenum::assert_type;
     use super::*;
 
     #[test]
@@ -491,6 +534,20 @@ mod tests {
     }
 
     #[test]
+    fn test_get_all_nonce() {
+        let mut blockchain = Blockchain::new();
+        let nonce = blockchain.get_all_nonce();
+        assert_eq!(nonce.len(), 0);
+
+        blockchain.system.increment_nonce("Alice").unwrap();
+        let nonce = blockchain.get_all_nonce();
+        assert_eq!(nonce.len(), 1);
+        assert_eq!(nonce["Alice"], 1);
+    }
+
+
+
+    #[test]
     fn test_set_balance() {
         let mut blockchain = Blockchain::new();
         let result = blockchain.set_balance("Alice", 100);
@@ -499,7 +556,9 @@ mod tests {
         assert_eq!(balance, 100);
     }
 
-/*    #[tokio::test]
+
+    //###### Testes above only work in network. ##########
+    /*#[tokio::test]
     async fn test_replace_chain() {
         let mut blockchain = Blockchain::new();
         let node = "http://localhost:8088";
@@ -508,6 +567,32 @@ mod tests {
         println!("Nodes: {}", node);
         let result = blockchain.replace_chain(node.to_string()).await;
         assert_eq!(result.is_ok(), true);
+    }
+
+    #[tokio::test]
+    async fn test_replace_nonce() {
+        let mut blockchain = Blockchain::new();
+        let node = "http://localhost:8088";
+        blockchain.add_node(node.to_string());
+        let node = blockchain.get_nodes()[0].clone();
+        println!("Nodes: {}", node);
+        blockchain.system.increment_nonce("Alice").unwrap();
+        blockchain.replace_nonce(node.to_string()).await;
+        let nonce = blockchain.system.get_nonce("Alice");
+        assert_eq!(nonce, 0);
+    }
+
+    #[tokio::test]
+    async fn test_replace_balance() {
+        let mut blockchain = Blockchain::new();
+        let node = "http://localhost:8088";
+        blockchain.add_node(node.to_string());
+        let node = blockchain.get_nodes()[0].clone();
+        println!("Nodes: {}", node);
+        blockchain.balances.set_balance("Alice", 200).expect("TODO: set balance error");
+        blockchain.replace_balance(node.to_string()).await;
+        let balance = blockchain.balance("Alice");
+        assert_eq!(balance, 100);
     }*/
 
 }

@@ -69,11 +69,29 @@ async fn get_nonce(runtime: &State<Mutex<Blockchain>>, address: &str) -> Json<se
     }))
 }
 
+#[get("/get_all_nonce")]
+async fn get_all_nonce(runtime: &State<Mutex<Blockchain>>) -> Json<serde_json::Value> {
+    let runtime = runtime.lock().await;
+    let nonce = runtime.get_all_nonce();
+    Json(json!({
+        "nonce": nonce
+    }))
+}
+
+#[get("/get_all_balance")]
+async fn get_all_balance(runtime: &State<Mutex<Blockchain>>) -> Json<serde_json::Value> {
+    let runtime = runtime.lock().await;
+    let balance = runtime.get_all_balance();
+    Json(json!({
+        "balance": balance
+    }))
+}
+
 pub async fn start_server() -> Result<(), rocket::Error> {
     let runtime = Blockchain::new();
     rocket::build()
         .manage(Mutex::new(runtime))
-        .mount("/", routes![get_chain, is_valid, add_transaction, connect_node, balance, get_nonce])
+        .mount("/", routes![get_chain, is_valid, add_transaction, connect_node, balance, get_nonce, get_all_nonce, get_all_balance])
         .launch()
         .await?;
 
